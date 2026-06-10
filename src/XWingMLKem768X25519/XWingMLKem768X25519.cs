@@ -219,12 +219,7 @@ public sealed class XWingMLKem768X25519 : IDisposable {
             kem.Encapsulate(ct_M, ss_M);
 
             // ss = Combiner(ss_M, ss_X, ct_X, pk_X)
-            Combiner(
-                ss_M,
-                ss_X,
-                ct_X,
-                pk_X,
-                sharedSecret);
+            Combiner(ss_M, ss_X, ct_X, pk_X, sharedSecret);
 
             // ct = concat(ct_M, ct_X)
             // the ciphertext (ct) was written directly to the buffer
@@ -429,17 +424,17 @@ public sealed class XWingMLKem768X25519 : IDisposable {
     }
 
     private static void Combiner(
-        ReadOnlySpan<byte> mlKemSharedSecret,
-        ReadOnlySpan<byte> x25519SharedSecret,
-        ReadOnlySpan<byte> x25519Ciphertext,
-        ReadOnlySpan<byte> x25519PublicKey,
+        ReadOnlySpan<byte> ss_M,
+        ReadOnlySpan<byte> ss_X,
+        ReadOnlySpan<byte> ct_X,
+        ReadOnlySpan<byte> pk_X,
         Span<byte> sharedSecret) {
 
         using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA3_256);
-        hash.AppendData(mlKemSharedSecret);
-        hash.AppendData(x25519SharedSecret);
-        hash.AppendData(x25519Ciphertext);
-        hash.AppendData(x25519PublicKey);
+        hash.AppendData(ss_M);
+        hash.AppendData(ss_X);
+        hash.AppendData(ct_X);
+        hash.AppendData(pk_X);
         hash.AppendData(XWingLabel);
         hash.GetHashAndReset(sharedSecret);
     }
@@ -493,7 +488,6 @@ public sealed class XWingMLKem768X25519 : IDisposable {
             throw new ArgumentException(ExceptionText.OverlappingBuffers, paramName);
         }
     }
-
 
     private record XWingPublicKey(MLKem Kem, byte[] EncapsulationKey);
     private record XWingPrivateKey(MLKem Kem, X25519DiffieHellman Xdh, byte[] EncapsulationKey, byte[] DecapsulationKey);
