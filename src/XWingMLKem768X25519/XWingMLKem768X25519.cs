@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 
@@ -8,10 +9,6 @@ namespace XWingMLKem768X25519;
 /// </summary>
 /// <remarks>
 ///   <para>The X-Wing algorithm is specified by <see href="https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/" />.</para>
-///   <para>
-///     This type only imports and exports the fixed-size raw X-Wing encapsulation and decapsulation keys. It does not
-///     support PKCS#8 or SubjectPublicKeyInfo key encodings.
-///   </para>
 ///   <para>
 ///     Instances of this object are not thread safe. Callers must ensure instances are only ever accessed exclusively by
 ///     a single thread.
@@ -42,16 +39,22 @@ public sealed class XWingMLKem768X25519 : IDisposable {
     private const int MLKemCiphertextSizeInBytes = 1088;
     private const int ExpandedDecapsulationKeySizeInBytes = 96;
     private static ReadOnlySpan<byte> XWingLabel => "\\.//^\\"u8;
-    private static readonly MLKemAlgorithm MLKem768 = MLKemAlgorithm.MLKem768;
+    private static readonly MLKemAlgorithm s_mlKem768 = MLKemAlgorithm.MLKem768;
 
     private MLKem? _mlKem;
-    private X25519DiffieHellman? _x25519PrivateKey;
+    private X25519DiffieHellman? _xdh;
     private readonly byte[] _encapsulationKey;
     private readonly byte[]? _decapsulationKey;
 
-    private XWingMLKem768X25519(MLKem mlKem, X25519DiffieHellman? x25519PrivateKey, byte[] encapsulationKey, byte[]? decapsulationKey) {
+    private XWingMLKem768X25519(MLKem mlKem, X25519DiffieHellman? xdh, byte[] encapsulationKey, byte[]? decapsulationKey) {
+        Debug.Assert(mlKem is not null);
+        Debug.Assert(mlKem.Algorithm == s_mlKem768);
+        Debug.Assert(encapsulationKey.Length == EncapsulationKeySizeInBytes);
+        Debug.Assert(decapsulationKey is null || decapsulationKey.Length == DecapsulationKeySizeInBytes);
+        Debug.Assert((xdh is null) == (decapsulationKey is null));
+
         _mlKem = mlKem;
-        _x25519PrivateKey = x25519PrivateKey;
+        _xdh = xdh;
         _encapsulationKey = encapsulationKey;
         _decapsulationKey = decapsulationKey;
     }
@@ -59,10 +62,8 @@ public sealed class XWingMLKem768X25519 : IDisposable {
     /// <summary>
     ///   Gets a value indicating whether X-Wing ML-KEM-768-X25519 is supported on the current platform.
     /// </summary>
-    public static bool IsSupported => MLKem.IsSupported &&
-                                      X25519DiffieHellman.IsSupported &&
-                                      SHA3_256.IsSupported &&
-                                      Shake256.IsSupported;
+    public static bool IsSupported =>
+        MLKem.IsSupported && X25519DiffieHellman.IsSupported && SHA3_256.IsSupported && Shake256.IsSupported;
 
     /// <summary>
     ///   Generates a new X-Wing key.
@@ -100,26 +101,25 @@ public sealed class XWingMLKem768X25519 : IDisposable {
         ThrowIfNotSupported();
         ThrowIfDecapsulationKeySizeIncorrect(source, nameof(source));
 
+        // X-Wing draft section 5.2 expands the 32-byte decapsulation key to
+        // the ML-KEM seed pair and X25519 private key with SHAKE256.
         Span<byte> expanded = stackalloc byte[ExpandedDecapsulationKeySizeInBytes];
         Shake256.HashData(source, expanded);
 
-        MLKem? mlKem = null;
-        X25519DiffieHellman? x25519PrivateKey = null;
-
         try {
-            mlKem = MLKem.ImportPrivateSeed(MLKem768, expanded[..MLKem768.PrivateSeedSizeInBytes]);
-            x25519PrivateKey = X25519DiffieHellman.ImportPrivateKey(
-                expanded.Slice(MLKem768.PrivateSeedSizeInBytes, X25519DiffieHellman.PrivateKeySizeInBytes));
+            // expanded[0:64] is the ML-KEM-768 private seed.
+            MLKem mlKem = MLKem.ImportPrivateSeed(s_mlKem768, expanded.Slice(0, s_mlKem768.PrivateSeedSizeInBytes));
 
+            // expanded[64:96] is the X25519 private key.
+            X25519DiffieHellman xdh = X25519DiffieHellman.ImportPrivateKey(
+                expanded.Slice(s_mlKem768.PrivateSeedSizeInBytes, X25519DiffieHellman.PrivateKeySizeInBytes));
+
+            // The X-Wing encapsulation key is pk_M || pk_X.
             byte[] encapsulationKey = new byte[EncapsulationKeySizeInBytes];
             mlKem.ExportEncapsulationKey(encapsulationKey.AsSpan(0, MLKemEncapsulationKeySizeInBytes));
-            x25519PrivateKey.ExportPublicKey(encapsulationKey.AsSpan(MLKemEncapsulationKeySizeInBytes));
+            xdh.ExportPublicKey(encapsulationKey.AsSpan(MLKemEncapsulationKeySizeInBytes));
 
-            return new XWingMLKem768X25519(mlKem, x25519PrivateKey, encapsulationKey, source.ToArray());
-        } catch {
-            mlKem?.Dispose();
-            x25519PrivateKey?.Dispose();
-            throw;
+            return new XWingMLKem768X25519(mlKem, xdh, encapsulationKey, source.ToArray());
         } finally {
             CryptographicOperations.ZeroMemory(expanded);
         }
@@ -152,7 +152,7 @@ public sealed class XWingMLKem768X25519 : IDisposable {
         ThrowIfNotSupported();
         ThrowIfEncapsulationKeySizeIncorrect(source, nameof(source));
 
-        MLKem mlKem = MLKem.ImportEncapsulationKey(MLKem768, source[..MLKemEncapsulationKeySizeInBytes]);
+        MLKem mlKem = MLKem.ImportEncapsulationKey(s_mlKem768, source.Slice(0, MLKemEncapsulationKeySizeInBytes));
         return new XWingMLKem768X25519(mlKem, null, source.ToArray(), null);
     }
 
@@ -189,22 +189,24 @@ public sealed class XWingMLKem768X25519 : IDisposable {
         ThrowIfOverlapping(ciphertext, sharedSecret, nameof(sharedSecret));
         ThrowIfDisposed();
 
-        Span<byte> mlKemCiphertext = ciphertext[..MLKemCiphertextSizeInBytes];
-        Span<byte> mlKemSharedSecret = stackalloc byte[MLKem768.SharedSecretSizeInBytes];
+        Span<byte> mlKemCiphertext = ciphertext.Slice(0, MLKemCiphertextSizeInBytes);
+        Span<byte> mlKemSharedSecret = stackalloc byte[s_mlKem768.SharedSecretSizeInBytes];
         Span<byte> x25519Ciphertext = ciphertext.Slice(MLKemCiphertextSizeInBytes, X25519DiffieHellman.PublicKeySizeInBytes);
         Span<byte> x25519SharedSecret = stackalloc byte[X25519DiffieHellman.SecretAgreementSizeInBytes];
 
         try {
-            using X25519DiffieHellman ephemeralX25519 = X25519DiffieHellman.GenerateKey();
+            using X25519DiffieHellman xdh = X25519DiffieHellman.GenerateKey();
             _mlKem.Encapsulate(mlKemCiphertext, mlKemSharedSecret);
-            ephemeralX25519.ExportPublicKey(x25519Ciphertext);
-            ephemeralX25519.DeriveRawSecretAgreement(_encapsulationKey.AsSpan(MLKemEncapsulationKeySizeInBytes), x25519SharedSecret);
+            xdh.ExportPublicKey(x25519Ciphertext);
+            xdh.DeriveRawSecretAgreement(
+                _encapsulationKey.AsSpan(MLKemEncapsulationKeySizeInBytes, X25519DiffieHellman.PublicKeySizeInBytes),
+                x25519SharedSecret);
 
             Combiner(
                 mlKemSharedSecret,
                 x25519SharedSecret,
                 x25519Ciphertext,
-                _encapsulationKey.AsSpan(MLKemEncapsulationKeySizeInBytes),
+                _encapsulationKey.AsSpan(MLKemEncapsulationKeySizeInBytes, X25519DiffieHellman.PublicKeySizeInBytes),
                 sharedSecret);
         } finally {
             CryptographicOperations.ZeroMemory(mlKemSharedSecret);
@@ -255,13 +257,18 @@ public sealed class XWingMLKem768X25519 : IDisposable {
         ThrowIfNoDecapsulationKey();
 
         ReadOnlySpan<byte> x25519Ciphertext = ciphertext.Slice(MLKemCiphertextSizeInBytes, X25519DiffieHellman.PublicKeySizeInBytes);
-        Span<byte> mlKemSharedSecret = stackalloc byte[MLKem768.SharedSecretSizeInBytes];
+        Span<byte> mlKemSharedSecret = stackalloc byte[s_mlKem768.SharedSecretSizeInBytes];
         Span<byte> x25519SharedSecret = stackalloc byte[X25519DiffieHellman.SecretAgreementSizeInBytes];
 
         try {
-            _mlKem.Decapsulate(ciphertext[..MLKemCiphertextSizeInBytes], mlKemSharedSecret);
-            _x25519PrivateKey.DeriveRawSecretAgreement(x25519Ciphertext, x25519SharedSecret);
-            Combiner(mlKemSharedSecret, x25519SharedSecret, x25519Ciphertext, _encapsulationKey.AsSpan(MLKemEncapsulationKeySizeInBytes), sharedSecret);
+            _mlKem.Decapsulate(ciphertext.Slice(0, MLKemCiphertextSizeInBytes), mlKemSharedSecret);
+            _xdh.DeriveRawSecretAgreement(x25519Ciphertext, x25519SharedSecret);
+            Combiner(
+                mlKemSharedSecret,
+                x25519SharedSecret,
+                x25519Ciphertext,
+                _encapsulationKey.AsSpan(MLKemEncapsulationKeySizeInBytes, X25519DiffieHellman.PublicKeySizeInBytes),
+                sharedSecret);
         } finally {
             CryptographicOperations.ZeroMemory(mlKemSharedSecret);
             CryptographicOperations.ZeroMemory(x25519SharedSecret);
@@ -361,9 +368,9 @@ public sealed class XWingMLKem768X25519 : IDisposable {
     /// </summary>
     public void Dispose() {
         _mlKem?.Dispose();
-        _x25519PrivateKey?.Dispose();
+        _xdh?.Dispose();
         _mlKem = null;
-        _x25519PrivateKey = null;
+        _xdh = null;
 
         if (_decapsulationKey is not null) {
             CryptographicOperations.ZeroMemory(_decapsulationKey);
@@ -397,9 +404,9 @@ public sealed class XWingMLKem768X25519 : IDisposable {
         ObjectDisposedException.ThrowIf(_mlKem is null, this);
     }
 
-    [MemberNotNull(nameof(_decapsulationKey), nameof(_x25519PrivateKey))]
+    [MemberNotNull(nameof(_decapsulationKey), nameof(_xdh))]
     private void ThrowIfNoDecapsulationKey() {
-        if (_decapsulationKey is null || _x25519PrivateKey is null) {
+        if (_decapsulationKey is null || _xdh is null) {
             throw new InvalidOperationException(ExceptionText.MissingDecapsulationKey);
         }
     }
