@@ -1,10 +1,10 @@
 X-Wing ML-KEM-768-X25519 for .NET
 ========
 
-This is an implementation of the X-Wing composite KEM for .NET 11 preview 5 and later.
+This is an implementation of the X-Wing hybrid KEM for .NET 11 preview 5 and later.
 
 Resources:
-* X-Wing Internet-Draft: https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/
+* X-Wing Internet-Draft: https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/ (Currently Draft 10)
 
 # Using
 
