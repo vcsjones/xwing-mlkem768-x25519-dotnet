@@ -6,6 +6,10 @@ This is an implementation of the X-Wing hybrid KEM for .NET 11 preview 5 and lat
 Resources:
 * X-Wing Internet-Draft: https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/ (Currently Draft 10)
 
+# NuGet
+
+Available on NuGet at https://www.nuget.org/packages/XWingMLKem768X25519/
+
 # Using
 
 ```C#
