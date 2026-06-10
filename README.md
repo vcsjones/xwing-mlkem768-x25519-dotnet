@@ -5,7 +5,6 @@ This is an implementation of the X-Wing composite KEM for .NET 11 preview 5 and 
 
 Resources:
 * X-Wing Internet-Draft: https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/
-* .NET ML-KEM API: https://learn.microsoft.com/dotnet/api/system.security.cryptography.mlkem
 
 # Using
 
