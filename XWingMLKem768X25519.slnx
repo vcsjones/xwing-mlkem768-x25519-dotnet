@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/XWingMLKem768X25519/XWingMLKem768X25519.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/XWingMLKem768X25519.Tests/XWingMLKem768X25519.Tests.csproj" />
+  </Folder>
+</Solution>
