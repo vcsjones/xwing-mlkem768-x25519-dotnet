@@ -33,7 +33,7 @@ $sdkBinPath = Join-Path -Path $sdkPath -ChildPath $archDirName
 Expand-Archive -Path $pkgPath -DestinationPath $scratchDir
 
 
-& "$sdkBinPath\signtool.exe" sign /d "XWingMLKem768X25519" /sha1 73f0844a95e35441a676cd6be1e79a3cd51d00b4 /fd SHA384 /td SHA384 /tr "http://timestamp.digicert.com" /du "https://github.com/vcsjones/xaes-256-gcm-dotnet" "$scratchDir\lib\net10.0\XWingMLKem768X25519.dll"
+& "$sdkBinPath\signtool.exe" sign /d "XWingMLKem768X25519" /sha1 73f0844a95e35441a676cd6be1e79a3cd51d00b4 /fd SHA384 /td SHA384 /tr "http://timestamp.digicert.com" /du "https://github.com/vcsjones/xaes-256-gcm-dotnet" "$scratchDir\lib\net11.0\XWingMLKem768X25519.dll"
 
 $pkgPathDir = Split-Path -Parent $pkgPath
 $pkgPathFile = Split-Path -Leaf $pkgPath
